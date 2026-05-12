@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>Härteliste Scanner</title>
+  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--ok:#16a34a;--bad:#dc2626;--warn:#f59e0b;--line:#374151}
+    *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{position:sticky;top:0;background:rgba(15,23,42,.96);backdrop-filter:blur(8px);z-index:2;padding:14px 14px 10px;border-bottom:1px solid var(--line)}
+    h1{font-size:20px;margin:0 0 10px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}.num{font-size:22px;font-weight:800}.label{font-size:12px;color:var(--muted)}
+    main{padding:14px;max-width:980px;margin:auto}.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+    video{width:100%;max-height:45vh;border-radius:12px;background:#000;object-fit:cover;border:1px solid var(--line)}
+    button,input,select{font:inherit;border-radius:10px;border:1px solid var(--line);padding:11px;background:#1f2937;color:var(--text)}
+    button{font-weight:700;cursor:pointer}button.primary{background:#2563eb;border-color:#2563eb}button.ok{background:var(--ok);border-color:var(--ok)}button.bad{background:var(--bad);border-color:var(--bad)}
+    .row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1}.msg{padding:10px;border-radius:10px;margin-top:10px;background:#1f2937}.msg.ok{background:#064e3b}.msg.bad{background:#7f1d1d}.msg.warn{background:#78350f}
+    table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:9px;text-align:left}th{position:sticky;top:96px;background:#111827;z-index:1}tr.checked{background:rgba(22,163,74,.18)}.pill{display:inline-block;padding:3px 8px;border-radius:999px;font-size:12px;background:#374151}.pill.ok{background:#166534}.small{font-size:12px;color:var(--muted)}
+    @media(max-width:650px){th:nth-child(3),td:nth-child(3){display:none}th{top:102px}.stats{grid-template-columns:repeat(3,1fr)}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Härteliste Scanner</h1>
+  <div class="stats">
+    <div class="stat"><div class="num" id="total">0</div><div class="label">Gesamt</div></div>
+    <div class="stat"><div class="num" id="done">0</div><div class="label">Vor Ort</div></div>
+    <div class="stat"><div class="num" id="open">0</div><div class="label">Fehlt</div></div>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <video id="video" muted playsinline></video>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="startBtn">Scanner starten</button>
+      <button id="stopBtn">Stoppen</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="manual" inputmode="numeric" placeholder="Nummer manuell eingeben, z. B. 580393">
+      <button class="ok" id="manualBtn">Abhaken</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="search" placeholder="Suchen: Nummer / Charge / Lagerort">
+      <select id="filter"><option value="all">Alle</option><option value="open">Nur fehlende</option><option value="done">Nur abgehakte</option></select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="exportBtn">CSV exportieren</button>
+      <button class="bad" id="resetBtn">Alle Haken löschen</button>
+    </div>
+    <div id="msg" class="msg">Bereit. Auf dem iPhone muss die Seite über HTTPS geöffnet werden, sonst blockiert iOS oft die Kamera.</div>
+  </section>
+  <section class="panel">
+    <table>
+      <thead><tr><th>Status</th><th>Lfd. Nr.</th><th>Charge</th><th>Härte HBW</th><th>Lagerort</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </section>
+</main>
+<script>
+const PARTS = [{"nummer": "580393", "charge": "B082812", "haerte": "243", "lagerort": "S.01"}, {"nummer": "580392", "charge": "B082812", "haerte": "246", "lagerort": ""}, {"nummer": "580402", "charge": "B090848", "haerte": "246", "lagerort": ""}, {"nummer": "580405", "charge": "B090848", "haerte": "246", "lagerort": ""}, {"nummer": "580409", "charge": "B090848", "haerte": "246", "lagerort": "S.02"}, {"nummer": "580406", "charge": "B090848", "haerte": "248", "lagerort": ""}, {"nummer": "580396", "charge": "B082812", "haerte": "250", "lagerort": ""}, {"nummer": "580415", "charge": "B090848", "haerte": "250", "lagerort": ""}, {"nummer": "580401", "charge": "B090848", "haerte": "251", "lagerort": "S.03"}, {"nummer": "580421", "charge": "B090848", "haerte": "251", "lagerort": ""}, {"nummer": "580523", "charge": "B090848", "haerte": "251", "lagerort": ""}, {"nummer": "581308", "charge": "U73190", "haerte": "251", "lagerort": ""}, {"nummer": "587961", "charge": "B092014", "haerte": "251", "lagerort": "S.04"}, {"nummer": "587940", "charge": "B092014", "haerte": "252", "lagerort": ""}, {"nummer": "580395", "charge": "B082812", "haerte": "253", "lagerort": ""}, {"nummer": "580397", "charge": "B090848", "haerte": "253", "lagerort": ""}, {"nummer": "580399", "charge": "B090848", "haerte": "253", "lagerort": "S.05"}, {"nummer": "581312", "charge": "U73190", "haerte": "253", "lagerort": ""}, {"nummer": "581303", "charge": "U73190", "haerte": "254", "lagerort": ""}, {"nummer": "580417", "charge": "B090848", "haerte": "255", "lagerort": ""}, {"nummer": "580430", "charge": "B090848", "haerte": "255", "lagerort": "S.06"}, {"nummer": "580476", "charge": "B090848", "haerte": "255", "lagerort": ""}, {"nummer": "580487", "charge": "B090848", "haerte": "255", "lagerort": ""}, {"nummer": "580512", "charge": "B090848", "haerte": "255", "lagerort": ""}, {"nummer": "580513", "charge": "B090848", "haerte": "255", "lagerort": "S.07"}, {"nummer": "581328", "charge": "U73190", "haerte": "255", "lagerort": ""}, {"nummer": "580398", "charge": "B090848", "haerte": "256", "lagerort": ""}, {"nummer": "580449", "charge": "B090848", "haerte": "256", "lagerort": ""}, {"nummer": "580514", "charge": "B090848", "haerte": "256", "lagerort": "S.08"}, {"nummer": "587934", "charge": "B092014", "haerte": "256", "lagerort": ""}, {"nummer": "580403", "charge": "B090848", "haerte": "257", "lagerort": ""}, {"nummer": "580407", "charge": "B090848", "haerte": "257", "lagerort": ""}, {"nummer": "580422", "charge": "B090848", "haerte": "257", "lagerort": "S.09"}, {"nummer": "580446", "charge": "B087528", "haerte": "257", "lagerort": ""}, {"nummer": "580460", "charge": "B090848", "haerte": "257", "lagerort": ""}, {"nummer": "580472", "charge": "B090848", "haerte": "257", "lagerort": ""}, {"nummer": "580482", "charge": "B090848", "haerte": "257", "lagerort": "S.10"}, {"nummer": "580486", "charge": "B090848", "haerte": "257", "lagerort": ""}, {"nummer": "587927", "charge": "B092014", "haerte": "257", "lagerort": ""}, {"nummer": "587939", "charge": "B092014", "haerte": "257", "lagerort": ""}, {"nummer": "580466", "charge": "B090848", "haerte": "258", "lagerort": "S.11"}, {"nummer": "580468", "charge": "B090848", "haerte": "258", "lagerort": ""}, {"nummer": "580522", "charge": "B090848", "haerte": "258", "lagerort": ""}, {"nummer": "581304", "charge": "U73190", "haerte": "258", "lagerort": ""}, {"nummer": "581306", "charge": "U73190", "haerte": "258", "lagerort": "S.12"}, {"nummer": "587928", "charge": "B092014", "haerte": "258", "lagerort": ""}, {"nummer": "580426", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580434", "charge": "B087528", "haerte": "259", "lagerort": ""}, {"nummer": "580444", "charge": "B087528", "haerte": "259", "lagerort": "S.13"}, {"nummer": "580445", "charge": "B087528", "haerte": "259", "lagerort": ""}, {"nummer": "580448", "charge": "B087528", "haerte": "259", "lagerort": ""}, {"nummer": "580452", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580464", "charge": "B090848", "haerte": "259", "lagerort": "S.14"}, {"nummer": "580467", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580471", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580480", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580515", "charge": "B090848", "haerte": "259", "lagerort": "S.15"}, {"nummer": "580516", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "580518", "charge": "B090848", "haerte": "259", "lagerort": ""}, {"nummer": "581317", "charge": "U73190", "haerte": "259", "lagerort": ""}, {"nummer": "587941", "charge": "B092014", "haerte": "259", "lagerort": "S.16"}, {"nummer": "587947", "charge": "B092014", "haerte": "259", "lagerort": ""}, {"nummer": "587951", "charge": "B092014", "haerte": "259", "lagerort": ""}, {"nummer": "580423", "charge": "B090848", "haerte": "260", "lagerort": ""}, {"nummer": "580425", "charge": "B090848", "haerte": "260", "lagerort": "S.17"}, {"nummer": "580435", "charge": "B087528", "haerte": "260", "lagerort": ""}, {"nummer": "580437", "charge": "B087528", "haerte": "260", "lagerort": ""}, {"nummer": "580439", "charge": "B087528", "haerte": "260", "lagerort": ""}, {"nummer": "580458", "charge": "B090848", "haerte": "260", "lagerort": "S.18"}, {"nummer": "580459", "charge": "B090848", "haerte": "260", "lagerort": ""}, {"nummer": "580495", "charge": "B090848", "haerte": "260", "lagerort": ""}, {"nummer": "581320", "charge": "U73190", "haerte": "260", "lagerort": ""}, {"nummer": "587932", "charge": "B092014", "haerte": "260", "lagerort": "S.19"}, {"nummer": "587935", "charge": "B092014", "haerte": "260", "lagerort": ""}, {"nummer": "580419", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "580427", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "580484", "charge": "B090848", "haerte": "261", "lagerort": "S.20"}, {"nummer": "580488", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "580489", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "580490", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "580505", "charge": "B090848", "haerte": "261", "lagerort": "S.21"}, {"nummer": "580511", "charge": "B090848", "haerte": "261", "lagerort": ""}, {"nummer": "581309", "charge": "U73190", "haerte": "261", "lagerort": ""}, {"nummer": "587933", "charge": "B092014", "haerte": "261", "lagerort": ""}, {"nummer": "587943", "charge": "B092014", "haerte": "261", "lagerort": "S.22"}, {"nummer": "587956", "charge": "B092014", "haerte": "261", "lagerort": ""}, {"nummer": "580428", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "580431", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "580441", "charge": "B087528", "haerte": "262", "lagerort": "S.23"}, {"nummer": "580447", "charge": "B087528", "haerte": "262", "lagerort": ""}, {"nummer": "580465", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "580478", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "580479", "charge": "B090848", "haerte": "262", "lagerort": "S.24"}, {"nummer": "580498", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "580504", "charge": "B090848", "haerte": "262", "lagerort": ""}, {"nummer": "581302", "charge": "U73190", "haerte": "262", "lagerort": ""}, {"nummer": "581318", "charge": "U73190", "haerte": "262", "lagerort": "S.25"}, {"nummer": "581326", "charge": "U73190", "haerte": "262", "lagerort": ""}, {"nummer": "581331", "charge": "U73190", "haerte": "262", "lagerort": ""}, {"nummer": "587929", "charge": "B092014", "haerte": "262", "lagerort": ""}, {"nummer": "587930", "charge": "B092014", "haerte": "262", "lagerort": "S.26"}, {"nummer": "587938", "charge": "B092014", "haerte": "262", "lagerort": ""}, {"nummer": "587944", "charge": "B092014", "haerte": "262", "lagerort": ""}, {"nummer": "587949", "charge": "B092014", "haerte": "262", "lagerort": ""}, {"nummer": "587950", "charge": "B092014", "haerte": "262", "lagerort": "S.27"}, {"nummer": "587952", "charge": "B092014", "haerte": "262", "lagerort": ""}, {"nummer": "580436", "charge": "B087528", "haerte": "263", "lagerort": ""}, {"nummer": "580442", "charge": "B087528", "haerte": "263", "lagerort": ""}, {"nummer": "580451", "charge": "B090848", "haerte": "263", "lagerort": "S.28"}, {"nummer": "580454", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580456", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580474", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580475", "charge": "B090848", "haerte": "263", "lagerort": "S.29"}, {"nummer": "580477", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580483", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580485", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580493", "charge": "B090848", "haerte": "263", "lagerort": "S.30"}, {"nummer": "580494", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580506", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580520", "charge": "B090848", "haerte": "263", "lagerort": ""}, {"nummer": "580524", "charge": "B090848", "haerte": "263", "lagerort": "S.31"}, {"nummer": "581339", "charge": "U73190", "haerte": "263", "lagerort": ""}, {"nummer": "587953", "charge": "B092014", "haerte": "263", "lagerort": ""}, {"nummer": "587954", "charge": "B092014", "haerte": "263", "lagerort": ""}, {"nummer": "587962", "charge": "B092014", "haerte": "263", "lagerort": "S.32"}, {"nummer": "580440", "charge": "B087528", "haerte": "264", "lagerort": ""}, {"nummer": "580473", "charge": "B090848", "haerte": "264", "lagerort": ""}, {"nummer": "580492", "charge": "B090848", "haerte": "264", "lagerort": ""}, {"nummer": "580497", "charge": "B090848", "haerte": "264", "lagerort": "S.33"}, {"nummer": "580501", "charge": "B090848", "haerte": "264", "lagerort": ""}, {"nummer": "581313", "charge": "U73190", "haerte": "264", "lagerort": ""}, {"nummer": "581322", "charge": "U73190", "haerte": "264", "lagerort": ""}, {"nummer": "581323", "charge": "U73190", "haerte": "264", "lagerort": "S.34"}, {"nummer": "581325", "charge": "U73190", "haerte": "264", "lagerort": ""}, {"nummer": "581334", "charge": "U73190", "haerte": "264", "lagerort": ""}, {"nummer": "587955", "charge": "B092014", "haerte": "264", "lagerort": ""}, {"nummer": "587959", "charge": "B092014", "haerte": "264", "lagerort": "S.35"}, {"nummer": "580438", "charge": "B087528", "haerte": "265", "lagerort": ""}, {"nummer": "580443", "charge": "B087528", "haerte": "265", "lagerort": ""}, {"nummer": "580453", "charge": "B090848", "haerte": "265", "lagerort": ""}, {"nummer": "580462", "charge": "B090848", "haerte": "265", "lagerort": "S.36"}, {"nummer": "580499", "charge": "B090848", "haerte": "265", "lagerort": ""}, {"nummer": "580509", "charge": "B090848", "haerte": "265", "lagerort": ""}, {"nummer": "580517", "charge": "B090848", "haerte": "265", "lagerort": ""}, {"nummer": "580519", "charge": "B090848", "haerte": "265", "lagerort": "S.37"}, {"nummer": "580521", "charge": "B090848", "haerte": "265", "lagerort": ""}, {"nummer": "581305", "charge": "U73190", "haerte": "265", "lagerort": ""}, {"nummer": "581321", "charge": "U73190", "haerte": "265", "lagerort": ""}, {"nummer": "581340", "charge": "U73190", "haerte": "265", "lagerort": "S.38"}, {"nummer": "580457", "charge": "B090848", "haerte": "266", "lagerort": ""}, {"nummer": "580500", "charge": "B090848", "haerte": "266", "lagerort": ""}, {"nummer": "580510", "charge": "B090848", "haerte": "266", "lagerort": ""}, {"nummer": "581332", "charge": "U73190", "haerte": "266", "lagerort": "S.39"}, {"nummer": "587937", "charge": "B092014", "haerte": "266", "lagerort": ""}, {"nummer": "587957", "charge": "B092014", "haerte": "266", "lagerort": ""}, {"nummer": "587958", "charge": "B092014", "haerte": "266", "lagerort": ""}, {"nummer": "587963", "charge": "B092014", "haerte": "266", "lagerort": "S.40"}, {"nummer": "580461", "charge": "B090848", "haerte": "267", "lagerort": ""}, {"nummer": "580491", "charge": "B090848", "haerte": "267", "lagerort": ""}, {"nummer": "580502", "charge": "B090848", "haerte": "267", "lagerort": ""}, {"nummer": "580507", "charge": "B090848", "haerte": "267", "lagerort": "S.41"}, {"nummer": "581329", "charge": "U73190", "haerte": "267", "lagerort": ""}, {"nummer": "581330", "charge": "U73190", "haerte": "267", "lagerort": ""}, {"nummer": "581341", "charge": "U73190", "haerte": "267", "lagerort": ""}, {"nummer": "581347", "charge": "U73190", "haerte": "267", "lagerort": "S.42"}, {"nummer": "580463", "charge": "B090848", "haerte": "268", "lagerort": ""}, {"nummer": "581327", "charge": "U73190", "haerte": "268", "lagerort": ""}, {"nummer": "581333", "charge": "U73190", "haerte": "268", "lagerort": ""}, {"nummer": "580450", "charge": "B090848", "haerte": "269", "lagerort": "S.43"}, {"nummer": "580496", "charge": "B090848", "haerte": "269", "lagerort": ""}, {"nummer": "580503", "charge": "B090848", "haerte": "269", "lagerort": ""}, {"nummer": "587936", "charge": "B092014", "haerte": "269", "lagerort": ""}, {"nummer": "587964", "charge": "B092014", "haerte": "269", "lagerort": "S.44"}, {"nummer": "580481", "charge": "B090848", "haerte": "270", "lagerort": ""}, {"nummer": "587931", "charge": "B092014", "haerte": "270", "lagerort": ""}, {"nummer": "581345", "charge": "U73190", "haerte": "271", "lagerort": ""}];
+const STORE_KEY = "haerteliste_scans_v1";
+let checked = new Set(JSON.parse(localStorage.getItem(STORE_KEY) || "[]"));
+let codeReader = null;
+let scanning = false;
+
+const $ = id => document.getElementById(id);
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify([...checked])); }
+function setMsg(text, cls=""){ const el=$("msg"); el.className="msg "+cls; el.textContent=text; }
+function normalize(raw){ return String(raw||"").replace(/\D/g,""); }
+function findPart(raw){
+  const n = normalize(raw);
+  if(!n) return null;
+  return PARTS.find(p => n.includes(p.nummer) || p.nummer.includes(n));
+}
+function scanValue(raw){
+  const p = findPart(raw);
+  if(!p){ setMsg("Nicht gefunden: " + raw, "bad"); return; }
+  const was = checked.has(p.nummer);
+  checked.add(p.nummer); save(); render();
+  setMsg((was ? "Schon abgehakt: " : "Abgehakt: ") + p.nummer + " | Charge " + p.charge + " | Härte " + p.haerte + (p.lagerort ? " | " + p.lagerort : ""), was ? "warn" : "ok");
+  if(navigator.vibrate) navigator.vibrate(was ? [80,40,80] : 120);
+}
+function render(){
+  $("total").textContent = PARTS.length;
+  $("done").textContent = checked.size;
+  $("open").textContent = PARTS.length - checked.size;
+  const q = $("search").value.trim().toLowerCase();
+  const f = $("filter").value;
+  const rows = PARTS.filter(p => {
+    const isDone = checked.has(p.nummer);
+    if(f==="done" && !isDone) return false;
+    if(f==="open" && isDone) return false;
+    if(q && !(p.nummer+p.charge+p.haerte+p.lagerort).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  $("tbody").innerHTML = rows.map(p => {
+    const isDone = checked.has(p.nummer);
+    return `<tr class="${isDone?'checked':''}" onclick="toggle('${p.nummer}')">
+      <td><span class="pill ${isDone?'ok':''}">${isDone?'✓ da':'fehlt'}</span></td>
+      <td><b>${p.nummer}</b></td><td>${p.charge}</td><td>${p.haerte}</td><td>${p.lagerort||'<span class="small">—</span>'}</td>
+    </tr>`;
+  }).join("");
+}
+window.toggle = function(n){ checked.has(n) ? checked.delete(n) : checked.add(n); save(); render(); };
+
+async function startScanner(){
+  if(scanning) return;
+  scanning = true;
+  setMsg("Scanner läuft. Barcode ruhig und hell vor die Kamera halten.");
+  try{
+    if(window.ZXing){
+      codeReader = new ZXing.BrowserMultiFormatReader();
+      const devices = await codeReader.listVideoInputDevices();
+      const back = devices.find(d => /back|rear|environment|rück/i.test(d.label)) || devices[devices.length-1];
+      await codeReader.decodeFromVideoDevice(back && back.deviceId, "video", (result, err) => {
+        if(result) scanValue(result.text);
+      });
+    } else if("BarcodeDetector" in window){
+      const detector = new BarcodeDetector({formats:["code_128","code_39","ean_13","ean_8","qr_code","data_matrix"]});
+      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      $("video").srcObject = stream; await $("video").play();
+      const loop = async () => {
+        if(!scanning) return;
+        const codes = await detector.detect($("video")).catch(()=>[]);
+        if(codes[0]) scanValue(codes[0].rawValue);
+        requestAnimationFrame(loop);
+      };
+      loop();
+    } else {
+      setMsg("Dieser Browser unterstützt keinen Barcode-Scanner. Nutze Safari/Chrome aktuell oder gib manuell ein.", "bad");
+    }
+  } catch(e){ scanning=false; setMsg("Kamera konnte nicht gestartet werden: " + e.message, "bad"); }
+}
+function stopScanner(){
+  scanning=false;
+  if(codeReader){ codeReader.reset(); codeReader=null; }
+  const v=$("video"); if(v.srcObject){ v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null; }
+  setMsg("Scanner gestoppt.");
+}
+$("startBtn").onclick=startScanner; $("stopBtn").onclick=stopScanner;
+$("manualBtn").onclick=()=>{ scanValue($("manual").value); $("manual").value=""; };
+$("manual").addEventListener("keydown",e=>{ if(e.key==="Enter") $("manualBtn").click(); });
+$("search").oninput=render; $("filter").onchange=render;
+$("resetBtn").onclick=()=>{ if(confirm("Wirklich alle Haken löschen?")){ checked.clear(); save(); render(); setMsg("Alle Haken gelöscht.","warn"); } };
+$("exportBtn").onclick=()=>{
+  const csv = ["Laufende Nummer;Charge;Härte HBW;Lagerort;Status"].concat(PARTS.map(p => [p.nummer,p.charge,p.haerte,p.lagerort,checked.has(p.nummer)?"vor Ort":"fehlt"].map(x=>`"${String(x).replaceAll('"','""')}"`).join(";"))).join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="haerteliste_status.csv"; a.click(); URL.revokeObjectURL(a.href);
+};
+render();
+</script>
+</body>
+</html>
