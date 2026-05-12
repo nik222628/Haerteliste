@@ -109,18 +109,75 @@ async function startScanner(){
   if(scanning) return;
   scanning = true;
   setMsg("Scanner läuft. Barcode ruhig und hell vor die Kamera halten.");
+
   try{
+    // Erst kurz Kamera-Berechtigung holen, damit iOS die Kameranamen freigibt
+    const permissionStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
+    permissionStream.getTracks().forEach(t => t.stop());
+
     if(window.ZXing){
       codeReader = new ZXing.BrowserMultiFormatReader();
       const devices = await codeReader.listVideoInputDevices();
-      const back = devices.find(d => /back|rear|environment|rück/i.test(d.label)) || devices[devices.length-1];
-      await codeReader.decodeFromVideoDevice(back && back.deviceId, "video", (result, err) => {
-        if(result) scanValue(result.text);
-      });
+
+      // Rückkameras suchen
+      const backCameras = devices.filter(d =>
+        /back|rear|environment|rück/i.test(d.label)
+      );
+
+      // Ultraweitwinkel / 0,5x bevorzugen
+      let selectedCamera = backCameras.find(d =>
+        /ultra|wide|0\.5|0,5/i.test(d.label)
+      );
+
+      // Falls iOS keine eindeutigen Namen liefert: letzte Rückkamera nehmen
+      if(!selectedCamera && backCameras.length){
+        selectedCamera = backCameras[backCameras.length - 1];
+      }
+
+      // Notfall-Fallback
+      if(!selectedCamera){
+        selectedCamera = devices[devices.length - 1];
+      }
+
+      setMsg("Scanner läuft mit Kamera: " + (selectedCamera.label || "Rückkamera"));
+      console.log("Verwendete Kamera:", selectedCamera.label, selectedCamera.deviceId);
+
+      await codeReader.decodeFromVideoDevice(
+        selectedCamera.deviceId,
+        "video",
+        (result, err) => {
+          if(result) scanValue(result.text);
+        }
+      );
+
     } else if("BarcodeDetector" in window){
-      const detector = new BarcodeDetector({formats:["code_128","code_39","ean_13","ean_8","qr_code","data_matrix"]});
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      $("video").srcObject = stream; await $("video").play();
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === "videoinput");
+
+      let selectedCamera = videoDevices.find(d =>
+        /ultra|wide|0\.5|0,5/i.test(d.label)
+      );
+
+      if(!selectedCamera){
+        selectedCamera = videoDevices[videoDevices.length - 1];
+      }
+
+      const detector = new BarcodeDetector({
+        formats:["code_128","code_39","ean_13","ean_8","qr_code","data_matrix"]
+      });
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: selectedCamera.deviceId } }
+      });
+
+      $("video").srcObject = stream;
+      await $("video").play();
+
+      setMsg("Scanner läuft mit Kamera: " + (selectedCamera.label || "Rückkamera"));
+      console.log("Verwendete Kamera:", selectedCamera.label, selectedCamera.deviceId);
+
       const loop = async () => {
         if(!scanning) return;
         const codes = await detector.detect($("video")).catch(()=>[]);
@@ -128,10 +185,15 @@ async function startScanner(){
         requestAnimationFrame(loop);
       };
       loop();
+
     } else {
+      scanning = false;
       setMsg("Dieser Browser unterstützt keinen Barcode-Scanner. Nutze Safari/Chrome aktuell oder gib manuell ein.", "bad");
     }
-  } catch(e){ scanning=false; setMsg("Kamera konnte nicht gestartet werden: " + e.message, "bad"); }
+  } catch(e){
+    scanning=false;
+    setMsg("Kamera konnte nicht gestartet werden: " + e.message, "bad");
+  }
 }
 function stopScanner(){
   scanning=false;
